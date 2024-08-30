@@ -1,0 +1,14 @@
+max_width = 125
+overflow_delimited_expr = true
+force_multiline_blocks = false
+newline_style = "Native"
+trailing_semicolon = false
+trailing_comma = "Vertical"
+binop_separator = "Back"
+
+imports_indent = "Block"
+imports_layout = "Mixed"
+imports_granularity = "Crate"
+reorder_imports = true
+group_imports = "StdExternalCrate"
+reorder_modules = true

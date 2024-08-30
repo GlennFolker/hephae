@@ -1,0 +1,16 @@
+[package]
+name = "hephae"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.14", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render"] }
+bytemuck = { version = "1", features = ["align_offset", "derive", "min_const_generics", "wasm_simd", "aarch64_simd", "const_zeroed"] }
+guillotiere = "0.6"
+radsort = "0.1"
+ron = "0.8"
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+[dev-dependencies]
+bevy = { version = "0.14", default-features = false, features = ["bevy_winit", "png", "multi_threaded", "async-io", "x11", "file_watcher"] }

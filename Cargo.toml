@@ -1,7 +1,12 @@
 [package]
 name = "hephae"
 version = "0.1.0"
+authors = ["GlFolker <glenn.folk08@gmail.com>"]
 edition = "2021"
+rust-version = "1.81"
+description = "A personalized, opinionated Bevy plugin that adds support for drawing (and batching) arbitrary vertices and indices."
+repository = "https://github.com/GlennFolker/hephae"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 bevy = { version = "0.14", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render"] }

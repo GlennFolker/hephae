@@ -1,7 +1,9 @@
 use std::io::Error as IoError;
 
 use bevy::{
-    asset::{io::Reader, AssetLoader, AssetPath, AsyncReadExt, LoadContext, LoadDirectError, ParseAssetPathError},
+    asset::{
+        io::Reader, AssetLoader, AssetPath, AsyncReadExt, LoadContext, LoadDirectError, ParseAssetPathError, ReflectAsset,
+    },
     prelude::*,
     render::{
         render_asset::RenderAssetUsages,
@@ -19,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Asset, Reflect, Debug, Clone)]
+#[reflect(Asset)]
 pub struct TextureAtlas {
     pub pages: Vec<AtlasPage>,
     pub texture_map: HashMap<String, (usize, usize)>,
@@ -36,6 +39,8 @@ pub struct TextureAtlasFile {
     pub padding: u32,
     #[serde(default = "TextureAtlasFile::default_bleeding")]
     pub bleeding: u32,
+    #[serde(default = "TextureAtlasFile::default_usages")]
+    pub usages: RenderAssetUsages,
     pub entries: Vec<TextureAtlasEntry>,
 }
 
@@ -48,6 +53,11 @@ impl TextureAtlasFile {
     #[inline]
     pub const fn default_bleeding() -> u32 {
         4
+    }
+
+    #[inline]
+    pub const fn default_usages() -> RenderAssetUsages {
+        RenderAssetUsages::RENDER_WORLD
     }
 }
 
@@ -134,6 +144,7 @@ impl AssetLoader for TextureAtlasLoader {
         let TextureAtlasFile {
             padding,
             mut bleeding,
+            usages,
             entries: file_entries,
         } = ron::de::from_bytes(&bytes)?;
 
@@ -207,7 +218,7 @@ impl AssetLoader for TextureAtlasLoader {
                 TextureDimension::D2,
                 vec![0; page_row_size * page_height as usize],
                 TextureFormat::Rgba8UnormSrgb,
-                RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+                usages,
             );
             let mut sprites = Vec::new();
 

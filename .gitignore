@@ -1,2 +1,6 @@
+# Ignore package lock and build artifacts.
 /target
 /Cargo.lock
+
+# Ignore possible internal compiler errors, especially when compiling with Nightly.
+rustc-ice-*-*-*_*_*-*.txt

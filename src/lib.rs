@@ -2,7 +2,7 @@ pub mod atlas;
 pub mod pipeline;
 pub mod vertex;
 
-use std::{marker::PhantomData, path::Path};
+use std::marker::PhantomData;
 
 use atlas::{TextureAtlas, TextureAtlasLoader};
 use bevy::{
@@ -67,14 +67,7 @@ where
         if !assets.contains(&HEPHAE_VIEW_BINDINGS_HANDLE) {
             assets.insert(
                 &HEPHAE_VIEW_BINDINGS_HANDLE,
-                Shader::from_wgsl(
-                    include_str!("hephae_view_bindings.wgsl"),
-                    Path::new(file!())
-                        .parent()
-                        .unwrap()
-                        .join("hephae_view_bindings.wgsl")
-                        .to_string_lossy(),
-                ),
+                Shader::from_wgsl(include_str!("view_bindings.wgsl"), "hephae/view_bindings.wgsl"),
             );
         }
 

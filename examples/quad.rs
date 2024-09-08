@@ -1,4 +1,5 @@
 use bevy::{
+    core_pipeline::bloom::BloomSettings,
     ecs::{
         query::QueryItem,
         system::{lifetimeless::SRes, SystemParamItem},
@@ -16,6 +17,7 @@ struct Vert {
 }
 
 impl Vert {
+    #[inline]
     const fn new(x: f32, y: f32, red: f32, green: f32, blue: f32, alpha: f32) -> Self {
         Self {
             pos: [x, y],
@@ -97,10 +99,10 @@ impl VertexCommand for Quad {
     fn draw(&self, queuer: &mut impl VertexQueuer<Vertex = Self::Vertex>) {
         let (sin, cos) = (self.0 * 3.0).sin_cos();
         queuer.vertices([
-            Vert::new(100.0 + cos * 25.0, 100.0 + sin * 25.0, 1.0, 0.0, 0.0, 1.0),
-            Vert::new(-100.0 - cos * 25.0, 100.0 + sin * 25.0, 0.0, 1.0, 0.0, 1.0),
-            Vert::new(-100.0 - cos * 25.0, -100.0 - sin * 25.0, 0.0, 0.0, 1.0, 1.0),
-            Vert::new(100.0 + cos * 25.0, -100.0 - sin * 25.0, 1.0, 1.0, 1.0, 1.0),
+            Vert::new(100.0 + cos * 25.0, 100.0 + sin * 25.0, 2.0, 0.0, 0.0, 1.0),
+            Vert::new(-100.0 - cos * 25.0, 100.0 + sin * 25.0, 0.0, 3.0, 0.0, 1.0),
+            Vert::new(-100.0 - cos * 25.0, -100.0 - sin * 25.0, 0.0, 0.0, 4.0, 1.0),
+            Vert::new(100.0 + cos * 25.0, -100.0 - sin * 25.0, 4.0, 3.0, 2.0, 1.0),
         ]);
 
         queuer.indices([0, 1, 2, 2, 3, 0]);
@@ -112,16 +114,18 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugins(HephaePlugin::<Vert>::new())
         .add_plugins(DrawerPlugin::<Draw>::new())
-        .insert_resource(Msaa::Sample4)
         .add_systems(Startup, startup)
         .run();
 }
 
 fn startup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle {
-        camera: Camera { hdr: true, ..default() },
-        ..Camera2dBundle::new_with_far(1000.0)
-    });
+    commands.spawn((
+        Camera2dBundle {
+            camera: Camera { hdr: true, ..default() },
+            ..Camera2dBundle::new_with_far(1000.0)
+        },
+        BloomSettings::NATURAL,
+    ));
 
     commands.spawn((
         VisibilityBundle::default(),

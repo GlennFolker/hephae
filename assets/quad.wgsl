@@ -2,7 +2,7 @@
 #import bevy_core_pipeline::tonemapping
 #endif
 
-#import hephae::hephae_view_bindings::view
+#import hephae::view_bindings::view
 
 struct VertexInput {
     @location(0) position: vec2<f32>,

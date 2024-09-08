@@ -55,11 +55,14 @@ impl<T: Vertex> FromWorld for HephaePipeline<T> {
         let device = world.resource::<RenderDevice>();
 
         let [lut_texture, lut_sampler] = get_lut_bind_group_layout_entries();
-        let view_layout = device.create_bind_group_layout("hephae_view_layout", &[
-            uniform_buffer::<ViewUniform>(true).build(0, ShaderStages::VERTEX_FRAGMENT),
-            lut_texture.build(1, ShaderStages::FRAGMENT),
-            lut_sampler.build(2, ShaderStages::FRAGMENT),
-        ]);
+        let view_layout = device.create_bind_group_layout(
+            "hephae_view_layout",
+            &[
+                uniform_buffer::<ViewUniform>(true).build(0, ShaderStages::VERTEX_FRAGMENT),
+                lut_texture.build(1, ShaderStages::FRAGMENT),
+                lut_sampler.build(2, ShaderStages::FRAGMENT),
+            ],
+        );
 
         let mut state = SystemState::<T::PipelineParam>::new(world);
         let vertex_prop = T::init_pipeline(state.get_mut(world));
@@ -251,7 +254,7 @@ pub fn queue_vertices<T: Vertex>(
 
     for (view_entity, view, tonemapping, dither) in &views {
         let Some(transparent_phase) = transparent_phases.get_mut(&view_entity) else {
-            continue
+            continue;
         };
 
         let view_key = ViewKey {
@@ -263,7 +266,7 @@ pub fn queue_vertices<T: Vertex>(
         };
 
         let Some(mut entities) = queues.entities.get_mut(&view_entity) else {
-            continue
+            continue;
         };
 
         for e in entities.drain() {
@@ -356,11 +359,11 @@ pub fn prepare_batch<T: Vertex>(
     let (queues, render_device, render_queue, mut batches, mut transparent_phases, views) = param_set.p0();
     for view in &views {
         let Some(transparent_phase) = transparent_phases.get_mut(&view) else {
-            continue
+            continue;
         };
 
         let Some((vertices, indices)) = batches.0.get_mut(&view) else {
-            continue
+            continue;
         };
 
         let mut batch_item_index = 0;
@@ -377,19 +380,22 @@ pub fn prepare_batch<T: Vertex>(
             let item = &mut transparent_phase.items[item_index];
             let Some(commands) = queues.commands.get(&item.entity) else {
                 batch_key = None;
-                continue
+                continue;
             };
 
             let Some((.., ref key, ref command)) =
                 commands.get(std::mem::replace(&mut item.extra_index, PhaseItemExtraIndex::NONE).0 as usize)
             else {
-                continue
+                continue;
             };
 
             command.draw(&mut queuer);
             queuer.len += queuer.vertices.len() as u32;
 
-            if batch_key.as_ref().is_none_or(|batch_key| batch_key == key) {
+            if match batch_key {
+                None => true,
+                Some(ref batch_key) => batch_key == key,
+            } {
                 batch_item_index = item_index;
                 batched_entities.push((item.entity, key.clone(), batch_range..batch_range));
             }
@@ -408,10 +414,13 @@ pub fn prepare_batch<T: Vertex>(
 
     let mut param = param_set.p1();
     for (batch_entity, key, range) in batched_entities.drain(..) {
-        batched_results.push((batch_entity, HephaeBatch {
-            prop: T::create_batch(&mut param, key),
-            range,
-        }));
+        batched_results.push((
+            batch_entity,
+            HephaeBatch {
+                prop: T::create_batch(&mut param, key),
+                range,
+            },
+        ));
     }
 
     drop(param);
@@ -433,25 +442,29 @@ pub fn prepare_view_bind_groups<T: Vertex>(
     fallback_image: Res<FallbackImage>,
 ) {
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
-        return
+        return;
     };
 
     for (entity, &tonemapping) in &views {
         let (lut_texture, lut_sampler) = get_lut_bindings(&images, &tonemapping_luts, &tonemapping, &fallback_image);
-        let view_bind_group = render_device.create_bind_group("hephae_view_bind_group", &pipeline.view_layout, &[
-            BindGroupEntry {
-                binding: 0,
-                resource: view_binding.clone(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(lut_texture),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::Sampler(lut_sampler),
-            },
-        ]);
+        let view_bind_group = render_device.create_bind_group(
+            "hephae_view_bind_group",
+            &pipeline.view_layout,
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: view_binding.clone(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(lut_texture),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(lut_sampler),
+                },
+            ],
+        );
 
         commands
             .entity(entity)
@@ -500,11 +513,11 @@ impl<P: PhaseItem, T: Vertex> RenderCommand<P> for DrawBatch<T> {
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         let Some(HephaeBatch { range, .. }) = entity else {
-            return RenderCommandResult::Failure
+            return RenderCommandResult::Failure;
         };
 
         let Some((vertices, indices)) = batches.into_inner().0.get(&view) else {
-            return RenderCommandResult::Failure
+            return RenderCommandResult::Failure;
         };
 
         pass.set_vertex_buffer(0, vertices.buffer().unwrap().slice(..));

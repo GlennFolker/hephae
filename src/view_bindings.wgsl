@@ -1,4 +1,4 @@
-#define_import_path hephae::hephae_view_bindings
+#define_import_path hephae::view_bindings
 
 #import bevy_render::view::View
 

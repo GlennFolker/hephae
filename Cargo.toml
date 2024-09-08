@@ -20,4 +20,4 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 
 [dev-dependencies]
-bevy = { version = "0.14", default-features = false, features = ["bevy_winit", "png", "multi_threaded", "async-io", "x11", "file_watcher"] }
+bevy = { version = "0.14", default-features = false, features = ["bevy_winit", "png", "multi_threaded", "async-io", "x11", "file_watcher", "trace"] }

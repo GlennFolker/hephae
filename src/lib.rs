@@ -26,8 +26,9 @@ pub mod prelude {
 
     pub use crate::{
         atlas::TextureAtlas,
-        vertex::{Drawer, DrawerPlugin, HasDrawer, Vertex, VertexCommand, VertexKey, VertexQueuer},
-        HephaePlugin,
+        pipeline::{HephaeBatch, HephaePipeline},
+        vertex::{Drawer, DrawerPlugin, HasDrawer, Vertex, VertexCommand, VertexQueuer},
+        HephaePlugin, HephaeSystems,
     };
 }
 
@@ -35,11 +36,9 @@ pub const HEPHAE_VIEW_BINDINGS_HANDLE: Handle<Shader> = Handle::weak_from_u128(2
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, SystemSet)]
 pub enum HephaeSystems {
-    ExtractDrawers,
     QueueBatches,
     QueueDrawers,
     QueueVertices,
-    PrepareBatches,
     PrepareBindGroups,
 }
 
@@ -91,8 +90,7 @@ where
                             HephaeSystems::QueueVertices,
                         )
                             .in_set(RenderSet::Queue),
-                        (HephaeSystems::QueueDrawers, HephaeSystems::QueueVertices).chain(),
-                        HephaeSystems::PrepareBatches.in_set(RenderSet::Prepare),
+                        HephaeSystems::QueueDrawers.before_ignore_deferred(HephaeSystems::QueueVertices),
                         HephaeSystems::PrepareBindGroups.in_set(RenderSet::PrepareBindGroups),
                     ),
                 )
@@ -102,8 +100,7 @@ where
                     (
                         queue_batches::<T>.in_set(HephaeSystems::QueueBatches),
                         queue_vertices::<T>.in_set(HephaeSystems::QueueVertices),
-                        prepare_batch::<T>.in_set(HephaeSystems::PrepareBatches),
-                        prepare_view_bind_groups::<T>.in_set(HephaeSystems::PrepareBindGroups),
+                        (prepare_batch::<T>, prepare_view_bind_groups::<T>).in_set(HephaeSystems::PrepareBindGroups),
                     ),
                 );
         }

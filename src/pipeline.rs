@@ -50,6 +50,13 @@ pub struct HephaePipeline<T: Vertex> {
     vertex_prop: T::PipelineProp,
 }
 
+impl<T: Vertex> HephaePipeline<T> {
+    #[inline]
+    pub const fn vertex_prop(&self) -> &T::PipelineProp {
+        &self.vertex_prop
+    }
+}
+
 impl<T: Vertex> FromWorld for HephaePipeline<T> {
     fn from_world(world: &mut World) -> Self {
         let device = world.resource::<RenderDevice>();

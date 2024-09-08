@@ -1,3 +1,5 @@
+use std::mem::offset_of;
+
 use bevy::{
     core_pipeline::bloom::BloomSettings,
     ecs::{
@@ -9,7 +11,7 @@ use bevy::{
 };
 use hephae::prelude::*;
 
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 struct Vert {
     pos: [f32; 2],
@@ -42,18 +44,15 @@ impl Vertex for Vert {
     const LAYOUT: &'static [VertexAttribute] = &[
         VertexAttribute {
             format: VertexFormat::Float32x2,
-            offset: 0,
+            offset: offset_of!(Self, pos) as BufferAddress,
             shader_location: 0,
         },
         VertexAttribute {
             format: VertexFormat::Float32x4,
-            offset: size_of::<[f32; 2]>() as BufferAddress,
+            offset: offset_of!(Self, color) as BufferAddress,
             shader_location: 1,
         },
     ];
-
-    #[inline]
-    fn setup(_: &mut App) {}
 
     #[inline]
     fn init_pipeline(_: SystemParamItem<Self::PipelineParam>) -> Self::PipelineProp {}
@@ -128,8 +127,8 @@ fn startup(mut commands: Commands) {
     ));
 
     commands.spawn((
-        VisibilityBundle::default(),
         TransformBundle::IDENTITY,
+        VisibilityBundle::default(),
         HasDrawer::<Draw>::new(),
     ));
 }

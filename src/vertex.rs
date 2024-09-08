@@ -23,7 +23,7 @@ use crate::{pipeline::VertexQueues, HephaeSystems};
 pub trait Vertex: Send + Sync + NoUninit {
     type PipelineParam: SystemParam;
     type PipelineProp: Send + Sync;
-    type PipelineKey: VertexKey;
+    type PipelineKey: Send + Sync + Clone + Eq + PartialEq + Hash;
 
     type Command: VertexCommand<Vertex = Self>;
 
@@ -44,9 +44,6 @@ pub trait Vertex: Send + Sync + NoUninit {
 
     fn create_batch(param: &mut SystemParamItem<Self::BatchParam>, key: Self::PipelineKey) -> Self::BatchProp;
 }
-
-pub trait VertexKey: Send + Sync + Clone + Eq + PartialEq + Hash {}
-impl VertexKey for () {}
 
 pub trait VertexCommand: Send + Sync {
     type Vertex: Vertex;
@@ -86,7 +83,7 @@ impl<T: Drawer> Plugin for DrawerPlugin<T> {
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
-                .add_systems(ExtractSchedule, extract_drawers::<T>.in_set(HephaeSystems::ExtractDrawers))
+                .add_systems(ExtractSchedule, extract_drawers::<T>)
                 .add_systems(Render, queue_drawers::<T>.in_set(HephaeSystems::QueueDrawers));
         }
     }
@@ -157,7 +154,7 @@ pub fn queue_drawers<T: Drawer>(
         for &e in visible_entities.iter::<With<HasDrawer<T>>>() {
             let index = e.index() as usize;
             if iterated[index] {
-                continue
+                continue;
             }
 
             iterated.grow_and_insert(index);

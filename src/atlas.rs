@@ -235,7 +235,7 @@ impl AssetLoader for TextureAtlasLoader {
                     return Err(TextureAtlasError::UnsupportedFormat {
                         name,
                         format: texture.texture_descriptor.format,
-                    })
+                    });
                 };
 
                 for (src_y, dst_y) in (min_y..max_y).enumerate() {
@@ -286,13 +286,13 @@ impl AssetLoader for TextureAtlasLoader {
                                     max_height,
                                     actual_width: width as u32,
                                     actual_height: height as u32,
-                                })
+                                });
                             } else {
                                 end(ids, packer)?;
 
                                 // Re-insert the entry to the back, since we didn't end up packing that one.
                                 entries.push((name, texture));
-                                continue 'pages
+                                continue 'pages;
                             }
                         }
 

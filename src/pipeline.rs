@@ -96,23 +96,13 @@ pub fn extract_shader<T: Vertex>(mut commands: Commands, shader: Extract<Option<
     }
 }
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone)]
 pub struct ViewKey {
     hdr: bool,
     msaa: u8,
     tonemapping: Option<Tonemapping>,
     dither: bool,
-    shader: Handle<Shader>,
-}
-
-impl Clone for ViewKey {
-    #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            shader: self.shader.clone_weak(),
-            ..*self
-        }
-    }
+    shader: AssetId<Shader>,
 }
 
 impl<T: Vertex> SpecializedRenderPipeline for HephaePipeline<T> {
@@ -154,7 +144,7 @@ impl<T: Vertex> SpecializedRenderPipeline for HephaePipeline<T> {
             layout: [self.view_layout.clone()].into(),
             push_constant_ranges: Vec::new(),
             vertex: VertexState {
-                shader: view_key.shader.clone_weak(),
+                shader: Handle::Weak(view_key.shader),
                 shader_defs: defs.clone(),
                 entry_point: "vertex".into(),
                 buffers: [VertexBufferLayout {
@@ -180,7 +170,7 @@ impl<T: Vertex> SpecializedRenderPipeline for HephaePipeline<T> {
                 alpha_to_coverage_enabled: false,
             },
             fragment: Some(FragmentState {
-                shader: view_key.shader,
+                shader: Handle::Weak(view_key.shader),
                 shader_defs: defs,
                 entry_point: "fragment".into(),
                 targets: [Some(ColorTargetState {
@@ -262,7 +252,7 @@ pub fn queue_vertices<T: Vertex>(
             msaa,
             tonemapping: (!view.hdr).then_some(tonemapping.copied()).flatten(),
             dither: !view.hdr && dither.copied().unwrap_or_default() == DebandDither::Enabled,
-            shader: shader.0.clone_weak(),
+            shader: shader.0.id(),
         };
 
         let Some(mut entities) = queues.entities.get_mut(&view_entity) else {
@@ -275,7 +265,7 @@ pub fn queue_vertices<T: Vertex>(
                 transparent_phase.add(Transparent2d {
                     sort_key: FloatOrd(layer),
                     entity: e,
-                    pipeline: pipelines.specialize(&mut pipeline_cache, &pipeline, (view_key.clone(), key.clone())),
+                    pipeline: pipelines.specialize(&mut pipeline_cache, &pipeline, (view_key, key.clone())),
                     draw_function,
                     batch_range: 0..0,
                     extra_index: PhaseItemExtraIndex(i as u32),

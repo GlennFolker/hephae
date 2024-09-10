@@ -143,7 +143,7 @@ impl AssetLoader for TextureAtlasLoader {
 
         let TextureAtlasFile {
             padding,
-            mut bleeding,
+            bleeding,
             usages,
             entries: file_entries,
         } = ron::de::from_bytes(&bytes)?;
@@ -229,7 +229,7 @@ impl AssetLoader for TextureAtlasLoader {
                 let max_x = max.x - padding;
                 let max_y = max.y - padding;
 
-                let target_row_size = (max_x - min_x) * size;
+                let src_row_size = (max_x - min_x) * size;
 
                 let Some(texture) = texture.convert(TextureFormat::Rgba8UnormSrgb) else {
                     return Err(TextureAtlasError::UnsupportedFormat {
@@ -238,9 +238,56 @@ impl AssetLoader for TextureAtlasLoader {
                     });
                 };
 
+                // Mem-set topleft-wards bleeding to topleft-most pixel and topright-wards bleeding to topright-most pixel.
+                // This is so that the subsequent bleeding operation may just use a split-off `copy_from_slice`.
+                for bleed_x in 0..bleeding {
+                    let left_x = (min_y - bleeding) * page_row_size + (min_x - bleed_x - 1) * size;
+                    image.data[left_x..left_x + size].copy_from_slice(&texture.data[..size]);
+
+                    let right_x = (min_y - bleeding) * page_row_size + (max_x + bleed_x) * size;
+                    image.data[right_x..right_x + size].copy_from_slice(&texture.data[src_row_size - size..src_row_size]);
+                }
+
+                // Copy top-most edge to bleed upwards.
+                image.data
+                    [(min_y - bleeding) * page_row_size + min_x * size..(min_y - bleeding) * page_row_size + max_x * size]
+                    .copy_from_slice(&texture.data[..src_row_size]);
+                for bleed_y in 1..bleeding {
+                    let (src, dst) = image
+                        .data
+                        .split_at_mut((min_y - bleeding + bleed_y) * page_row_size + (min_x - bleeding) * size);
+                    dst[..src_row_size + 2 * bleeding * size].copy_from_slice(
+                        &src[(min_y - bleeding + bleed_y - 1) * page_row_size + (min_x - bleeding) * size
+                            ..(min_y - bleeding + bleed_y - 1) * page_row_size + (max_x + bleeding) * size],
+                    );
+                }
+
+                // Copy the actual image, while performing sideways bleeding.
                 for (src_y, dst_y) in (min_y..max_y).enumerate() {
-                    image.data[dst_y * page_row_size + min_x * size..dst_y * page_row_size + max_x * size]
-                        .copy_from_slice(&texture.data[src_y * target_row_size..(src_y + 1) * target_row_size]);
+                    let dst_row = dst_y * page_row_size;
+                    image.data[dst_row + min_x * size..dst_row + max_x * size]
+                        .copy_from_slice(&texture.data[src_y * src_row_size..(src_y + 1) * src_row_size]);
+
+                    for bleed_x in 0..bleeding {
+                        let left_x = dst_y * page_row_size + (min_x - bleed_x - 1) * size;
+                        image.data[left_x..left_x + size]
+                            .copy_from_slice(&texture.data[src_y * src_row_size..src_y * src_row_size + size]);
+
+                        let right_x = dst_y * page_row_size + (max_x + bleed_x) * size;
+                        image.data[right_x..right_x + size]
+                            .copy_from_slice(&texture.data[(src_y + 1) * src_row_size - size..(src_y + 1) * src_row_size]);
+                    }
+                }
+
+                // Copy the bottom-most edge to bleed downwards.
+                for bleed_y in 0..bleeding {
+                    let (src, dst) = image
+                        .data
+                        .split_at_mut((max_y + bleed_y) * page_row_size + (min_x - bleeding) * size);
+                    dst[..src_row_size + 2 * bleeding * size].copy_from_slice(
+                        &src[(max_y + bleed_y - 1) * page_row_size + (min_x - bleeding) * size
+                            ..(max_y + bleed_y - 1) * page_row_size + (max_x + bleeding) * size],
+                    );
                 }
 
                 atlas.texture_map.insert(name, (atlas.pages.len(), sprites.len()));

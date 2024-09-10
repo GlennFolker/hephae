@@ -227,8 +227,8 @@ impl Drawer for DrawSprite {
 
         let Vec2 { x, y } = self.pos;
         let Vec2 { x: hw, y: hh } = (self.rect.max - self.rect.min).as_vec2() / 2.0 * self.scl;
-        let Vec2 { x: u, y: v2 } = self.rect.min.as_vec2() / page.size.as_vec2();
-        let Vec2 { x: u2, y: v } = self.rect.max.as_vec2() / page.size.as_vec2();
+        let Vec2 { x: u, y: v2 } = (self.rect.min.as_vec2() - Vec2::splat(4.0)) / page.size.as_vec2();
+        let Vec2 { x: u2, y: v } = (self.rect.max.as_vec2() + Vec2::splat(4.0)) / page.size.as_vec2();
 
         queuer.extend([(
             0.0,

@@ -1,4 +1,4 @@
-use std::io::Error as IoError;
+use std::{borrow::Cow, io::Error as IoError, usize};
 
 use bevy::{
     asset::{
@@ -10,7 +10,7 @@ use bevy::{
         render_resource::{Extent3d, TextureDimension, TextureFormat},
         texture::TextureFormatPixelInfo,
     },
-    utils::HashMap,
+    utils::{HashMap, HashSet},
 };
 use guillotiere::{
     euclid::{Box2D, Size2D},
@@ -31,6 +31,76 @@ pub struct TextureAtlas {
 pub struct AtlasPage {
     pub image: Handle<Image>,
     pub sprites: Vec<URect>,
+}
+
+#[derive(Component, Debug, Clone, Deref, DerefMut)]
+pub struct AtlasEntry(pub Cow<'static, str>);
+
+#[derive(Component, Copy, Clone, Debug)]
+pub struct AtlasIndex {
+    page_index: usize,
+    sprite_index: usize,
+}
+
+impl Default for AtlasIndex {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            page_index: usize::MAX,
+            sprite_index: usize::MAX,
+        }
+    }
+}
+
+impl AtlasIndex {
+    #[inline]
+    pub const fn indices(self) -> Option<(usize, usize)> {
+        if self.page_index == usize::MAX || self.sprite_index == usize::MAX {
+            None
+        } else {
+            Some((self.page_index, self.sprite_index))
+        }
+    }
+}
+
+pub fn update_atlas_index(
+    mut events: EventReader<AssetEvent<TextureAtlas>>,
+    atlases: Res<Assets<TextureAtlas>>,
+    mut entries: Query<(&Handle<TextureAtlas>, &AtlasEntry, &mut AtlasIndex)>,
+    mut changed: Local<HashSet<AssetId<TextureAtlas>>>,
+) {
+    if events.is_empty() {
+        return;
+    }
+
+    changed.clear();
+    for &event in events.read() {
+        if let AssetEvent::Added { id } | AssetEvent::Modified { id } = event {
+            changed.insert(id);
+        }
+    }
+
+    if changed.is_empty() {
+        return;
+    }
+
+    for (handle, entry, mut index) in &mut entries {
+        if !changed.contains(&handle.id()) {
+            *index = default();
+            continue;
+        }
+
+        let Some(atlas) = atlases.get(handle) else { continue };
+        let Some(&(page_index, sprite_index)) = atlas.texture_map.get(&***entry) else {
+            *index = default();
+            return;
+        };
+
+        *index = AtlasIndex {
+            page_index,
+            sprite_index,
+        };
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

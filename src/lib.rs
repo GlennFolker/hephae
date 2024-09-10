@@ -4,7 +4,7 @@ pub mod vertex;
 
 use std::marker::PhantomData;
 
-use atlas::{TextureAtlas, TextureAtlasLoader};
+use atlas::{update_atlas_index, TextureAtlas, TextureAtlasLoader};
 use bevy::{
     core_pipeline::core_2d::Transparent2d,
     ecs::system::ReadOnlySystemParam,
@@ -25,7 +25,7 @@ pub mod prelude {
     pub use ::bytemuck::{self, NoUninit, Pod, Zeroable};
 
     pub use crate::{
-        atlas::TextureAtlas,
+        atlas::{AtlasEntry, AtlasIndex, TextureAtlas},
         pipeline::{HephaeBatch, HephaePipeline},
         vertex::{Drawer, DrawerPlugin, HasDrawer, Vertex, VertexCommand, VertexQueuer},
         HephaePlugin, HephaeSystems,
@@ -73,7 +73,8 @@ where
         app.init_asset::<TextureAtlas>()
             .register_asset_reflect::<TextureAtlas>()
             .register_asset_loader(TextureAtlasLoader)
-            .add_systems(Startup, load_shader::<T>);
+            .add_systems(Startup, load_shader::<T>)
+            .add_systems(PostUpdate, update_atlas_index);
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app

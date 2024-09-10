@@ -1,4 +1,4 @@
-use std::{borrow::Cow, mem::offset_of};
+use std::mem::offset_of;
 
 use bevy::{
     core_pipeline::bloom::BloomSettings,
@@ -198,10 +198,10 @@ impl Drawer for DrawSprite {
     #[inline]
     fn extract(
         atlases: &SystemParamItem<Self::ExtractParam>,
-        (&trns, atlas, index): QueryItem<Self::ExtractData>,
+        (&trns, atlas, &index): QueryItem<Self::ExtractData>,
     ) -> Option<Self> {
         let atlas = atlases.get(atlas)?;
-        let &(page_index, rect_index) = atlas.texture_map.get(&*index.0)?;
+        let (page_index, rect_index) = index.indices()?;
 
         let (page, rect) = atlas
             .pages
@@ -227,8 +227,8 @@ impl Drawer for DrawSprite {
 
         let Vec2 { x, y } = self.pos;
         let Vec2 { x: hw, y: hh } = (self.rect.max - self.rect.min).as_vec2() / 2.0 * self.scl;
-        let Vec2 { x: u, y: v2 } = (self.rect.min.as_vec2() - Vec2::splat(4.0)) / page.size.as_vec2();
-        let Vec2 { x: u2, y: v } = (self.rect.max.as_vec2() + Vec2::splat(4.0)) / page.size.as_vec2();
+        let Vec2 { x: u, y: v2 } = self.rect.min.as_vec2() / page.size.as_vec2();
+        let Vec2 { x: u2, y: v } = self.rect.max.as_vec2() / page.size.as_vec2();
 
         queuer.extend([(
             0.0,
@@ -286,9 +286,6 @@ impl VertexCommand for Sprite {
     }
 }
 
-#[derive(Component, Clone)]
-struct AtlasIndex(Cow<'static, str>);
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
@@ -317,7 +314,8 @@ fn startup(mut commands: Commands, server: Res<AssetServer>) {
         },
         VisibilityBundle::default(),
         server.load::<TextureAtlas>("sprites/sprites.atlas"),
-        AtlasIndex("cix".into()),
+        AtlasEntry("cix".into()),
+        AtlasIndex::default(),
         HasDrawer::<DrawSprite>::new(),
     ));
 }

@@ -304,18 +304,26 @@ fn startup(mut commands: Commands, server: Res<AssetServer>) {
         BloomSettings::NATURAL,
     ));
 
-    commands.spawn((
-        TransformBundle {
-            local: Transform {
-                scale: Vec3::splat(10.0),
+    for translation in [
+        Vec3::new(-200.0, -200.0, 0.0),
+        Vec3::new(200.0, -200.0, 0.0),
+        Vec3::new(200.0, 200.0, 0.0),
+        Vec3::new(-200.0, 200.0, 0.0),
+    ] {
+        commands.spawn((
+            TransformBundle {
+                local: Transform {
+                    translation,
+                    scale: Vec3::splat(10.0),
+                    ..default()
+                },
                 ..default()
             },
-            ..default()
-        },
-        VisibilityBundle::default(),
-        server.load::<TextureAtlas>("sprites/sprites.atlas"),
-        AtlasEntry("cix".into()),
-        AtlasIndex::default(),
-        HasDrawer::<DrawSprite>::new(),
-    ));
+            VisibilityBundle::default(),
+            server.load::<TextureAtlas>("sprites/sprites.atlas"),
+            AtlasEntry("cix".into()),
+            AtlasIndex::default(),
+            HasDrawer::<DrawSprite>::new(),
+        ));
+    }
 }

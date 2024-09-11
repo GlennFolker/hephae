@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 pub mod atlas;
 pub mod pipeline;
 pub mod vertex;

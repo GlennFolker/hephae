@@ -364,7 +364,7 @@ pub fn prepare_batch<T: Vertex>(
         };
 
         let mut batch_item_index = 0;
-        let mut batch_range = 0;
+        let mut batch_index_range = 0;
         let mut batch_key = None::<T::PipelineKey>;
 
         let mut queuer = Queuer {
@@ -380,26 +380,31 @@ pub fn prepare_batch<T: Vertex>(
                 continue;
             };
 
-            let Some((.., ref key, ref command)) =
+            let Some((.., key, command)) =
                 commands.get(std::mem::replace(&mut item.extra_index, PhaseItemExtraIndex::NONE).0 as usize)
             else {
                 continue;
             };
 
+            let prev_vertices_len = queuer.vertices.len();
+            let prev_index_len = queuer.indices.len();
+
             command.draw(&mut queuer);
-            queuer.len += queuer.vertices.len() as u32;
+            queuer.len += (queuer.vertices.len() - prev_vertices_len) as u32;
 
             if match batch_key {
                 None => true,
-                Some(ref batch_key) => batch_key == key,
+                Some(ref batch_key) => batch_key != key,
             } {
                 batch_item_index = item_index;
-                batched_entities.push((item.entity, key.clone(), batch_range..batch_range));
+                batched_entities.push((item.entity, key.clone(), batch_index_range..batch_index_range));
             }
 
-            batch_range += queuer.indices.len() as u32;
+            batch_index_range += (queuer.indices.len() - prev_index_len) as u32;
             transparent_phase.items[batch_item_index].batch_range.end += 1;
-            batched_entities.last_mut().unwrap().2.end = batch_range;
+            batched_entities.last_mut().unwrap().2.end = batch_index_range;
+
+            batch_key = Some(key.clone());
         }
 
         vertices.write_buffer(&render_device, &render_queue);

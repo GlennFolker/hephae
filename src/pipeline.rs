@@ -62,14 +62,11 @@ impl<T: Vertex> FromWorld for HephaePipeline<T> {
         let device = world.resource::<RenderDevice>();
 
         let [lut_texture, lut_sampler] = get_lut_bind_group_layout_entries();
-        let view_layout = device.create_bind_group_layout(
-            "hephae_view_layout",
-            &[
-                uniform_buffer::<ViewUniform>(true).build(0, ShaderStages::VERTEX_FRAGMENT),
-                lut_texture.build(1, ShaderStages::FRAGMENT),
-                lut_sampler.build(2, ShaderStages::FRAGMENT),
-            ],
-        );
+        let view_layout = device.create_bind_group_layout("hephae_view_layout", &[
+            uniform_buffer::<ViewUniform>(true).build(0, ShaderStages::VERTEX_FRAGMENT),
+            lut_texture.build(1, ShaderStages::FRAGMENT),
+            lut_sampler.build(2, ShaderStages::FRAGMENT),
+        ]);
 
         let mut state = SystemState::<T::PipelineParam>::new(world);
         let vertex_prop = T::init_pipeline(state.get_mut(world));
@@ -212,7 +209,7 @@ impl<T: Vertex> Default for VertexQueues<T> {
     }
 }
 
-pub fn queue_batches<T: Vertex>(
+pub fn clear_batches<T: Vertex>(
     mut batches: ResMut<HephaeBatches<T>>,
     views: Query<Entity, With<ExtractedView>>,
     mut all_views: Local<FixedBitSet>,
@@ -416,13 +413,10 @@ pub fn prepare_batch<T: Vertex>(
 
     let mut param = param_set.p1();
     for (batch_entity, key, range) in batched_entities.drain(..) {
-        batched_results.push((
-            batch_entity,
-            HephaeBatch {
-                prop: T::create_batch(&mut param, key),
-                range,
-            },
-        ));
+        batched_results.push((batch_entity, HephaeBatch {
+            prop: T::create_batch(&mut param, key),
+            range,
+        }));
     }
 
     drop(param);
@@ -449,24 +443,20 @@ pub fn prepare_view_bind_groups<T: Vertex>(
 
     for (entity, &tonemapping) in &views {
         let (lut_texture, lut_sampler) = get_lut_bindings(&images, &tonemapping_luts, &tonemapping, &fallback_image);
-        let view_bind_group = render_device.create_bind_group(
-            "hephae_view_bind_group",
-            &pipeline.view_layout,
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: view_binding.clone(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(lut_texture),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(lut_sampler),
-                },
-            ],
-        );
+        let view_bind_group = render_device.create_bind_group("hephae_view_bind_group", &pipeline.view_layout, &[
+            BindGroupEntry {
+                binding: 0,
+                resource: view_binding.clone(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::TextureView(lut_texture),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::Sampler(lut_sampler),
+            },
+        ]);
 
         commands
             .entity(entity)

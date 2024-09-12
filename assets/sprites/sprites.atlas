@@ -1,5 +1,9 @@
 (
     padding: 4,
     bleeding: 4,
+    usages: (
+        main: false,
+        render: true,
+    ),
     entries: ["cix.png"],
 )

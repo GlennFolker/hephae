@@ -20,6 +20,7 @@ use fixedbitset::FixedBitSet;
 
 use crate::{pipeline::VertexQueues, HephaeSystems};
 
+/// The heart of Hephae. Instances of `Vertex` define
 pub trait Vertex: Send + Sync + NoUninit {
     type PipelineParam: SystemParam;
     type PipelineProp: Send + Sync;

@@ -24,7 +24,11 @@ use bevy::{
     },
     utils::HashMap,
 };
-use hephae::prelude::*;
+use hephae::{
+    atlas::{AtlasEntry, AtlasIndex, TextureAtlas},
+    pipeline::{HephaeBatch, HephaePipeline},
+    prelude::*,
+};
 
 #[derive(Resource, Default)]
 struct ImageAssetEvents(Vec<AssetEvent<Image>>);
@@ -32,9 +36,9 @@ struct ImageAssetEvents(Vec<AssetEvent<Image>>);
 #[derive(Resource, Default)]
 struct ImageBindGroups(HashMap<AssetId<Image>, BindGroup>);
 
-fn extract_image_events(mut images: ResMut<ImageAssetEvents>, mut events: Extract<EventReader<AssetEvent<Image>>>) {
-    let images = &mut images.0;
-    images.extend(events.read());
+fn extract_image_events(mut events: ResMut<ImageAssetEvents>, mut image_events: Extract<EventReader<AssetEvent<Image>>>) {
+    let images = &mut events.0;
+    images.extend(image_events.read());
 }
 
 fn validate_image_bind_groups(mut image_bind_groups: ResMut<ImageBindGroups>, mut events: ResMut<ImageAssetEvents>) {
@@ -109,13 +113,10 @@ impl Vertex for SpriteVertex {
 
     #[inline]
     fn init_pipeline(render_device: SystemParamItem<Self::PipelineParam>) -> Self::PipelineProp {
-        render_device.create_bind_group_layout(
-            "sprite_material_layout",
-            &[
-                texture_2d(TextureSampleType::Float { filterable: true }).build(0, ShaderStages::FRAGMENT),
-                sampler(SamplerBindingType::Filtering).build(1, ShaderStages::FRAGMENT),
-            ],
-        )
+        render_device.create_bind_group_layout("sprite_material_layout", &[
+            texture_2d(TextureSampleType::Float { filterable: true }).build(0, ShaderStages::FRAGMENT),
+            sampler(SamplerBindingType::Filtering).build(1, ShaderStages::FRAGMENT),
+        ])
     }
 
     #[inline]
@@ -134,20 +135,16 @@ impl Vertex for SpriteVertex {
     ) -> Self::BatchProp {
         let Some(gpu_image) = gpu_images.get(key) else { return key };
         image_bind_groups.0.entry(key).or_insert_with(|| {
-            render_device.create_bind_group(
-                "sprite_material",
-                pipeline.vertex_prop(),
-                &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: gpu_image.texture_view.into_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: gpu_image.sampler.into_binding(),
-                    },
-                ],
-            )
+            render_device.create_bind_group("sprite_material", pipeline.vertex_prop(), &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: gpu_image.texture_view.into_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: gpu_image.sampler.into_binding(),
+                },
+            ])
         });
 
         key
@@ -230,20 +227,16 @@ impl Drawer for DrawSprite {
         let Vec2 { x: u, y: v2 } = self.rect.min.as_vec2() / page.size.as_vec2();
         let Vec2 { x: u2, y: v } = self.rect.max.as_vec2() / page.size.as_vec2();
 
-        queuer.extend([(
-            0.0,
-            self.page,
-            Sprite {
-                x,
-                y,
-                hw,
-                hh,
-                u,
-                v,
-                u2,
-                v2,
-            },
-        )]);
+        queuer.extend([(0.0, self.page, Sprite {
+            x,
+            y,
+            hw,
+            hh,
+            u,
+            v,
+            u2,
+            v2,
+        })]);
     }
 }
 
@@ -296,13 +289,7 @@ fn main() {
 }
 
 fn startup(mut commands: Commands, server: Res<AssetServer>) {
-    commands.spawn((
-        Camera2dBundle {
-            camera: Camera { hdr: true, ..default() },
-            ..Camera2dBundle::new_with_far(1000.0)
-        },
-        BloomSettings::NATURAL,
-    ));
+    commands.spawn((Camera2dBundle::new_with_far(1000.0), BloomSettings::NATURAL));
 
     for translation in [
         Vec3::new(-200.0, -200.0, 0.0),

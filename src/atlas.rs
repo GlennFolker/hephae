@@ -1,8 +1,33 @@
+//! Provides texture atlas functionality.
+//!
+//! A texture atlas contains atlas pages, i.e. lists of textures packed into one large texture in
+//! order to reduce the amount of bind groups necessary to hold the information passed to shaders.
+//! This means integrating a texture atlas into [`Vertex`](crate::vertex::Vertex) rendering will
+//! significantly increase batching potential, leading to fewer GPU render calls.
+//!
+//! This module provides the [`TextureAtlas`] type, which also derives [`Asset`] and has an
+//! associated [asset loader](TextureAtlasLoader) with it. Refer to [`TextureAtlasFile`] for the
+//! specific format of `.atlas` files.
+//!
+//! This module also provides [`AtlasEntry`] and [`AtlasIndex`] [components](Component); the former
+//! being the atlas lookup key, and the latter being the cached sprite index. The dedicated
+//! [`update_atlas_index`] system listens to changes/additions to texture atlas assets and updates
+//! the [`AtlasIndex`] of entities accordingly.
+//!
+//! Ideally, you'd want to associate each atlas pages with a
+//! [`BindGroup`](bevy::render::render_resource::BindGroup), define a texture and sampler layout in
+//! the [specialized pipeline](crate::vertex::Vertex::PipelineProp), somehow store a reference
+//! to this bind group into the [batch entities](crate::vertex::Vertex::create_batch), and finally
+//! set the [render pass](bevy::render::render_phase::TrackedRenderPass)'s bind group to the atlas
+//! page bind group accordingly with the layout you defined earlier.
+//!
+//! See the `examples/sprite.rs` for a full example.
+
 use std::{borrow::Cow, io::Error as IoError, usize};
 
 use bevy::{
     asset::{
-        io::Reader, AssetLoader, AssetPath, AsyncReadExt, LoadContext, LoadDirectError, ParseAssetPathError, ReflectAsset,
+        io::Reader, AssetLoadError, AssetLoader, AssetPath, AsyncReadExt, LoadContext, ParseAssetPathError, ReflectAsset,
     },
     prelude::*,
     render::{
@@ -17,25 +42,47 @@ use guillotiere::{
     size2, AllocId, AtlasAllocator, Change, ChangeList,
 };
 use ron::de::SpannedError;
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{Error as DeError, MapAccess, Visitor},
+    ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 use thiserror::Error;
 
+/// A list of textures packed into one large texture. See the [module-level](crate::atlas)
+/// documentation for more specific information on how to integrate this into your rendering
+/// framework.
 #[derive(Asset, Reflect, Debug, Clone)]
 #[reflect(Asset)]
 pub struct TextureAtlas {
+    /// The list of pages contained in this atlas. Items may be modified, but growing or shrinking
+    /// this vector is **discouraged**.
     pub pages: Vec<AtlasPage>,
-    pub texture_map: HashMap<String, (usize, usize)>,
+    /// Mapping of sprite names to `(P, Q)` where `P` is the [page index](Self::pages) and `Q` is
+    /// the [sprite index](AtlasPage::sprites). Only ever modify if you know what you're doing.
+    pub sprite_map: HashMap<String, (usize, usize)>,
 }
 
+/// A page located in a [`TextureAtlas`]. Contains the handle to the page image, and rectangle
+/// placements of each sprites.
 #[derive(Reflect, Debug, Clone)]
 pub struct AtlasPage {
+    /// The page handle.
     pub image: Handle<Image>,
+    /// List of sprite rectangle placements in the page; may be looked up from
+    /// [TextureAtlas::sprite_map].
     pub sprites: Vec<URect>,
 }
 
+/// Component denoting a texture atlas sprite lookup key. See the [module-level](crate::atlas)
+/// documentation for more specific information on how to integrate this into your rendering
+/// framework.
 #[derive(Component, Debug, Clone, Deref, DerefMut)]
 pub struct AtlasEntry(pub Cow<'static, str>);
 
+/// Component denoting a texture atlas cached sprite index. See the [module-level](crate::atlas)
+/// documentation for more specific information on how to integrate this into your rendering
+/// framework.
 #[derive(Component, Copy, Clone, Debug)]
 pub struct AtlasIndex {
     page_index: usize,
@@ -53,6 +100,8 @@ impl Default for AtlasIndex {
 }
 
 impl AtlasIndex {
+    /// Obtains the [page index](TextureAtlas::pages) and [sprite index](AtlasPage::sprites), or
+    /// [`None`] if the [key](AtlasIndex) is invalid.
     #[inline]
     pub const fn indices(self) -> Option<(usize, usize)> {
         if self.page_index == usize::MAX || self.sprite_index == usize::MAX {
@@ -63,16 +112,16 @@ impl AtlasIndex {
     }
 }
 
+/// System to update [`AtlasIndex`] according to changes [`AtlasEntry`] and [`TextureAtlas`] assets.
 pub fn update_atlas_index(
     mut events: EventReader<AssetEvent<TextureAtlas>>,
     atlases: Res<Assets<TextureAtlas>>,
-    mut entries: Query<(&Handle<TextureAtlas>, &AtlasEntry, &mut AtlasIndex)>,
+    mut entries: ParamSet<(
+        Query<(&Handle<TextureAtlas>, &AtlasEntry, &mut AtlasIndex), Changed<AtlasEntry>>,
+        Query<(&Handle<TextureAtlas>, &AtlasEntry, &mut AtlasIndex)>,
+    )>,
     mut changed: Local<HashSet<AssetId<TextureAtlas>>>,
 ) {
-    if events.is_empty() {
-        return;
-    }
-
     changed.clear();
     for &event in events.read() {
         if let AssetEvent::Added { id } | AssetEvent::Modified { id } = event {
@@ -80,18 +129,9 @@ pub fn update_atlas_index(
         }
     }
 
-    if changed.is_empty() {
-        return;
-    }
-
-    for (handle, entry, mut index) in &mut entries {
-        if !changed.contains(&handle.id()) {
-            *index = default();
-            continue;
-        }
-
-        let Some(atlas) = atlases.get(handle) else { continue };
-        let Some(&(page_index, sprite_index)) = atlas.texture_map.get(&***entry) else {
+    let update = |handle, entry, mut index: Mut<AtlasIndex>| {
+        let Some(atlas) = atlases.get(handle) else { return };
+        let Some(&(page_index, sprite_index)) = atlas.sprite_map.get(entry) else {
             *index = default();
             return;
         };
@@ -100,41 +140,153 @@ pub fn update_atlas_index(
             page_index,
             sprite_index,
         };
+    };
+
+    if changed.is_empty() {
+        for (handle, entry, index) in &mut entries.p0() {
+            update(handle, &***entry, index);
+        }
+    } else {
+        for (handle, entry, mut index) in &mut entries.p1() {
+            if !changed.contains(&handle.id()) {
+                *index = default();
+                continue;
+            }
+
+            update(handle, &***entry, index);
+        }
     }
 }
 
+/// Asset file representation of [`TextureAtlas`]. This struct `impl`s [`Serialize`] and
+/// [`Deserialize`], which means it may be (de)serialized into any implementation, albeit
+/// [TextureAtlasLoader] uses [RON](ron) format specifically.
+///
+/// Format is as following:
+/// ```ron
+/// (
+///     padding: 4,
+///     bleeding: 4,
+///     usages: (
+///         main: false,
+///         render: true,
+///     ),
+///     entries: [
+///         "some-file-relative-to-atlas-file.png",
+///         ("some-dir-relative-to-atlas-file", [
+///             "some-file-inside-the-dir.png",
+///         ]),
+///     ],
+/// )
+/// ```
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TextureAtlasFile {
+    /// How far away the edges of one sprite to another and to the page boundaries, in pixels. This
+    /// may be utilized to mitigate the imperfect precision with texture sampling where a fraction
+    /// of neighboring sprites actually get sampled instead.
     #[serde(default = "TextureAtlasFile::default_padding")]
     pub padding: u32,
+    /// How much the sprites will "bleed" outside its edge. That is, how much times the edges of a
+    /// sprite is copied to its surrounding border, creating a bleeding effect. This may be utilized
+    /// to mitigate the imperfect precision with texture sampling where the edge of a sprite doesn't
+    /// quite reach the edge of the vertices.
     #[serde(default = "TextureAtlasFile::default_bleeding")]
     pub bleeding: u32,
-    #[serde(default = "TextureAtlasFile::default_usages")]
+    #[serde(
+        default = "TextureAtlasFile::default_usages",
+        serialize_with = "TextureAtlasFile::serialize_usages",
+        deserialize_with = "TextureAtlasFile::deserialize_usages"
+    )]
+    /// Defines the usages for the resulting atlas pages.
     pub usages: RenderAssetUsages,
+    /// File entries relative to the atlas configuration file.
     pub entries: Vec<TextureAtlasEntry>,
 }
 
 impl TextureAtlasFile {
+    /// Default padding of a texture atlas is 4 pixels.
     #[inline]
     pub const fn default_padding() -> u32 {
         4
     }
 
+    /// Default bleeding of a texture atlas is 4 pixels.
     #[inline]
     pub const fn default_bleeding() -> u32 {
         4
     }
 
+    /// Default usage of texture atlas pages is [RenderAssetUsages::RENDER_WORLD].
     #[inline]
     pub const fn default_usages() -> RenderAssetUsages {
         RenderAssetUsages::RENDER_WORLD
     }
+
+    /// Serializes the usages into `(main: <bool>, render: <bool>)`.
+    #[inline]
+    pub fn serialize_usages<S: Serializer>(usages: &RenderAssetUsages, ser: S) -> Result<S::Ok, S::Error> {
+        let mut u = ser.serialize_struct("RenderAssetUsages", 2)?;
+        u.serialize_field("main", &usages.contains(RenderAssetUsages::MAIN_WORLD))?;
+        u.serialize_field("render", &usages.contains(RenderAssetUsages::RENDER_WORLD))?;
+        u.end()
+    }
+
+    /// Deserializes the usages from `(main: <bool>, render: <bool>)`.
+    #[inline]
+    pub fn deserialize_usages<'de, D: Deserializer<'de>>(de: D) -> Result<RenderAssetUsages, D::Error> {
+        const FIELDS: &[&str] = &["main", "render"];
+
+        struct Visit;
+        impl<'de> Visitor<'de> for Visit {
+            type Value = RenderAssetUsages;
+
+            #[inline]
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "struct RenderAssetUsages {{ main: bool, render: bool }}")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut main = None::<bool>;
+                let mut render = None::<bool>;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        "main" => match main {
+                            None => main = Some(map.next_value()?),
+                            Some(..) => return Err(DeError::duplicate_field("main")),
+                        },
+                        "render" => match render {
+                            None => render = Some(map.next_value()?),
+                            Some(..) => return Err(DeError::duplicate_field("render")),
+                        },
+                        e => return Err(DeError::unknown_field(e, FIELDS)),
+                    }
+                }
+
+                let main = main.ok_or(DeError::missing_field("main"))?;
+                let render = render.ok_or(DeError::missing_field("render"))?;
+                Ok(match (main, render) {
+                    (false, false) => RenderAssetUsages::empty(),
+                    (true, false) => RenderAssetUsages::MAIN_WORLD,
+                    (false, true) => RenderAssetUsages::RENDER_WORLD,
+                    (true, true) => RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+                })
+            }
+        }
+
+        de.deserialize_struct("RenderAssetUsages", FIELDS, Visit)
+    }
 }
 
+/// A [TextureAtlas] file entry. May either be a file or a directory containing files.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum TextureAtlasEntry {
+    /// Defines a relative path to an [Image] file.
     File(String),
+    /// Defines a directory relative to the current one, filled with more entries.
     Directory(String, Vec<TextureAtlasEntry>),
 }
 
@@ -145,11 +297,17 @@ impl<T: ToString> From<T> for TextureAtlasEntry {
     }
 }
 
+/// Additional settings that may be adjusted when loading a [TextureAtlas]. This is typically used
+/// to limit texture sizes to what the rendering backend supports.
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct TextureAtlasSettings {
+    /// The initial width of an atlas page. Gradually grows to [Self::max_width] if insufficient.
     pub init_width: u32,
+    /// The initial height of an atlas page. Gradually grows to [Self::max_height] if insufficient.
     pub init_height: u32,
+    /// The maximum width of an atlas page. If insufficient, a new page must be allocated.
     pub max_width: u32,
+    /// The maximum height of an atlas page. If insufficient, a new page must be allocated.
     pub max_height: u32,
 }
 
@@ -165,30 +323,62 @@ impl Default for TextureAtlasSettings {
     }
 }
 
+/// Errors that may arise when loading a [`TextureAtlas`].
 #[derive(Error, Debug)]
 pub enum TextureAtlasError {
+    /// Error that arises when a texture is larger than the maximum size of the atlas page.
     #[error("Texture '{name}' is too large: [{actual_width}, {actual_height}] > [{max_width}, {max_height}]")]
     TooLarge {
+        /// The sprite lookup key.
         name: String,
+        /// The maximum width of the atlas page. See [`TextureAtlasSettings::max_width`].
         max_width: u32,
+        /// The maximum width of the atlas page. See [`TextureAtlasSettings::max_height`].
         max_height: u32,
+        /// The width of the erroneous texture.
         actual_width: u32,
+        /// The height of the erroneous texture.
         actual_height: u32,
     },
-    #[error("Sampler '{0}' doesn't exist")]
-    NonexistentSampler(String),
+    /// Error that arises when the texture couldn't be converted into
+    /// [`TextureFormat::Rgba8UnormSrgb`].
     #[error("Texture '{name}' has an unsupported format: {format:?}")]
-    UnsupportedFormat { name: String, format: TextureFormat },
-    #[error(transparent)]
-    InvalidImage(#[from] LoadDirectError),
+    UnsupportedFormat {
+        /// The sprite lookup key.
+        name: String,
+        /// The invalid texture format.
+        format: TextureFormat,
+    },
+    /// Error that arises when the texture couldn't be loaded at all.
+    #[error("Texture '{name}' failed to load: {error}")]
+    InvalidImage {
+        /// The sprite lookup key.
+        name: String,
+        /// The error that arises when trying to load the texture.
+        error: AssetLoadError,
+    },
+    /// Error that arises when a texture has an invalid path string.
     #[error(transparent)]
     InvalidPath(#[from] ParseAssetPathError),
+    /// Error that arises when the `.atlas` file has an invalid RON syntax.
     #[error(transparent)]
     InvalidFile(#[from] SpannedError),
+    /// Error that arises when an IO error occurs.
     #[error(transparent)]
     Io(#[from] IoError),
 }
 
+/// Dedicated [`AssetLoader`] to load [`TextureAtlas`]. Parses file into [`TextureAtlasFile`]
+/// representation, and accepts [`TextureAtlasSettings`] as additional optional configuration. May
+/// throw [`TextureAtlasError`] for erroneous assets.
+///
+/// This asset loader adds each texture atlas entry as a "load dependency." As much, coupled with a
+/// file system watcher, mutating these input image files will cause reprocessing of the atlas.
+///
+/// This asset loader also adds [`pages[i].image`](AtlasPage::image) as a labelled asset with label
+/// `"page-{i}"` (without the brackets). Therefore, doing (for example)
+/// `server.load::<Image>("sprites.atlas#page-0")` is possible and will return the 0th page image of
+/// the atlas, provided the atlas actually has a 0th page.
 pub struct TextureAtlasLoader;
 impl AssetLoader for TextureAtlasLoader {
     type Asset = TextureAtlas;
@@ -233,9 +423,16 @@ impl AssetLoader for TextureAtlasLoader {
                     let path = base.resolve(&path)?;
                     let Some(name) = path.path().file_stem() else { return Ok(()) };
 
+                    let name = name.to_string_lossy().into_owned();
                     accum.push((
-                        name.to_string_lossy().into_owned(),
-                        load_context.loader().direct().load::<Image>(&path).await?.take(),
+                        name.clone(),
+                        load_context
+                            .loader()
+                            .direct()
+                            .load::<Image>(&path)
+                            .await
+                            .map_err(|e| TextureAtlasError::InvalidImage { name, error: e.error })?
+                            .take(),
                     ));
                 }
                 TextureAtlasEntry::Directory(dir, paths) => {
@@ -267,7 +464,7 @@ impl AssetLoader for TextureAtlasLoader {
 
         let mut atlas = TextureAtlas {
             pages: Vec::new(),
-            texture_map: HashMap::new(),
+            sprite_map: HashMap::new(),
         };
 
         let mut end = |ids: HashMap<AllocId, (String, Image)>, packer: AtlasAllocator| {
@@ -308,8 +505,9 @@ impl AssetLoader for TextureAtlasLoader {
                     });
                 };
 
-                // Mem-set topleft-wards bleeding to topleft-most pixel and topright-wards bleeding to topright-most pixel.
-                // This is so that the subsequent bleeding operation may just use a split-off `copy_from_slice`.
+                // Mem-set topleft-wards bleeding to topleft-most pixel and topright-wards
+                // bleeding to topright-most pixel. This is so that the
+                // subsequent bleeding operation may just use a split-off `copy_from_slice`.
                 for bleed_x in 0..bleeding {
                     let left_x = (min_y - bleeding) * page_row_size + (min_x - bleed_x - 1) * size;
                     image.data[left_x..left_x + size].copy_from_slice(&texture.data[..size]);
@@ -327,8 +525,8 @@ impl AssetLoader for TextureAtlasLoader {
                         .data
                         .split_at_mut((min_y - bleeding + bleed_y) * page_row_size + (min_x - bleeding) * size);
                     dst[..src_row_size + 2 * bleeding * size].copy_from_slice(
-                        &src[(min_y - bleeding + bleed_y - 1) * page_row_size + (min_x - bleeding) * size
-                            ..(min_y - bleeding + bleed_y - 1) * page_row_size + (max_x + bleeding) * size],
+                        &src[(min_y - bleeding + bleed_y - 1) * page_row_size + (min_x - bleeding) * size..
+                            (min_y - bleeding + bleed_y - 1) * page_row_size + (max_x + bleeding) * size],
                     );
                 }
 
@@ -355,12 +553,12 @@ impl AssetLoader for TextureAtlasLoader {
                         .data
                         .split_at_mut((max_y + bleed_y) * page_row_size + (min_x - bleeding) * size);
                     dst[..src_row_size + 2 * bleeding * size].copy_from_slice(
-                        &src[(max_y + bleed_y - 1) * page_row_size + (min_x - bleeding) * size
-                            ..(max_y + bleed_y - 1) * page_row_size + (max_x + bleeding) * size],
+                        &src[(max_y + bleed_y - 1) * page_row_size + (min_x - bleeding) * size..
+                            (max_y + bleed_y - 1) * page_row_size + (max_x + bleeding) * size],
                     );
                 }
 
-                atlas.texture_map.insert(name, (atlas.pages.len(), sprites.len()));
+                atlas.sprite_map.insert(name, (atlas.pages.len(), sprites.len()));
                 sprites.push(URect {
                     min: UVec2::new(min_x as u32, min_y as u32),
                     max: UVec2::new(max_x as u32, max_y as u32),

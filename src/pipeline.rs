@@ -1,3 +1,19 @@
+//! Provides all the necessary resources for a working base rendering pipeline. Note that
+//! drawer-specific pipeline integration is provided by [`crate::vertex::DrawerPlugin`].
+//!
+//! The procedures are as following:
+//! - During [extraction](ExtractSchedule), the [pipeline shader](Vertex::SHADER) [id](AssetId) is
+//!   synchronized from the main world to the render world.
+//! - During [phase item queueing](bevy::render::RenderSet::Queue), vertex and index buffers for use
+//!   in batches are inserted (or cleared if exists already) to each [view](ExtractedView) entities.
+//!   Each visible [drawers](crate::vertex::Drawer) also queue [`VertexCommand`]s as [phase
+//!   items](PhaseItem), ready to be sorted.
+//! - During [GPU resource preparation](bevy::render::RenderSet::PrepareBindGroups), camera view
+//!   bind groups are created, and for each camera view, overlapping vertex commands are invoked to
+//!   draw into the GPU buffers. Compatible vertex commands are batched, that is, they share a
+//!   section in the vertex and index buffers and share GPU render calls.
+//! - [`DrawBatch`] renders each batches.
+
 use std::{
     marker::PhantomData,
     ops::Range,
@@ -383,11 +399,8 @@ pub fn prepare_batch<T: Vertex>(
                 continue;
             };
 
-            let prev_vertices_len = queuer.vertices.len();
-            let prev_index_len = queuer.indices.len();
-
             command.draw(&mut queuer);
-            queuer.len += (queuer.vertices.len() - prev_vertices_len) as u32;
+            queuer.len = queuer.vertices.len() as u32;
 
             if match batch_key {
                 None => true,
@@ -397,7 +410,7 @@ pub fn prepare_batch<T: Vertex>(
                 batched_entities.push((item.entity, key.clone(), batch_index_range..batch_index_range));
             }
 
-            batch_index_range += (queuer.indices.len() - prev_index_len) as u32;
+            batch_index_range = queuer.indices.len() as u32;
             transparent_phase.items[batch_item_index].batch_range.end += 1;
             batched_entities.last_mut().unwrap().2.end = batch_index_range;
 

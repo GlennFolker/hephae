@@ -160,7 +160,7 @@ pub fn update_atlas_index(
 
 /// Asset file representation of [`TextureAtlas`]. This struct `impl`s [`Serialize`] and
 /// [`Deserialize`], which means it may be (de)serialized into any implementation, albeit
-/// [TextureAtlasLoader] uses [RON](ron) format specifically.
+/// [`TextureAtlasLoader`] uses [RON](ron) format specifically.
 ///
 /// Format is as following:
 /// ```ron

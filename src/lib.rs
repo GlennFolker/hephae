@@ -5,10 +5,7 @@ pub mod atlas;
 pub mod pipeline;
 pub mod vertex;
 
-use std::{
-    marker::PhantomData,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::marker::PhantomData;
 
 use atlas::{update_atlas_index, TextureAtlas, TextureAtlasLoader};
 use bevy::{
@@ -18,6 +15,7 @@ use bevy::{
     render::{
         render_phase::{AddRenderCommand, RenderCommand},
         render_resource::SpecializedRenderPipelines,
+        view::{check_visibility, VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
 };
@@ -25,14 +23,14 @@ use pipeline::{
     clear_batches, extract_shader, load_shader, prepare_batch, prepare_view_bind_groups, queue_vertices, DrawRequests,
     HephaeBatches, HephaePipeline, VertexQueues,
 };
-use vertex::Vertex;
+use vertex::{HasVertex, Vertex};
 
 /// Prelude module containing commonly imported items.
 pub mod prelude {
     pub use ::bytemuck::{self, NoUninit, Pod, Zeroable};
 
     pub use crate::{
-        vertex::{Drawer, DrawerPlugin, HasDrawer, Vertex, VertexCommand, VertexQueuer},
+        vertex::{Drawer, DrawerPlugin, Vertex, VertexCommand, VertexQueuer},
         HephaePlugin, HephaeSystems,
     };
 }
@@ -80,11 +78,12 @@ where
     <T::RenderCommand as RenderCommand<Transparent2d>>::Param: ReadOnlySystemParam,
 {
     fn build(&self, app: &mut App) {
-        // The following only runs once since it's not generic over `T`.
-        static HAS_RUN: AtomicBool = AtomicBool::new(false);
+        #[derive(Resource)]
+        struct Common;
 
-        let run = !HAS_RUN.swap(true, Ordering::Relaxed);
+        let run = !app.world().contains_resource::<Common>();
         if run {
+            app.insert_resource(Common);
             app.world_mut().resource_mut::<Assets<Shader>>().insert(
                 &HEPHAE_VIEW_BINDINGS_HANDLE,
                 Shader::from_wgsl(include_str!("view_bindings.wgsl"), "hephae/view_bindings.wgsl"),
@@ -96,7 +95,11 @@ where
                 .add_systems(PostUpdate, update_atlas_index);
         }
 
-        app.add_systems(Startup, load_shader::<T>);
+        app.add_systems(Startup, load_shader::<T>).add_systems(
+            PostUpdate,
+            check_visibility::<With<HasVertex<T>>>.in_set(VisibilitySystems::CheckVisibility),
+        );
+
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             if run {
                 render_app.configure_sets(

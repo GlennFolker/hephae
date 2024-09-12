@@ -10,7 +10,7 @@ use bevy::{
     render::{
         render_phase::RenderCommand,
         render_resource::{RenderPipelineDescriptor, VertexAttribute},
-        view::{check_visibility, ExtractedView, VisibilitySystems, VisibleEntities},
+        view::{ExtractedView, VisibleEntities},
         Extract, Render, RenderApp,
     },
     utils::EntityHashSet,
@@ -60,6 +60,22 @@ pub trait VertexQueuer {
     fn indices(&mut self, indices: impl IntoIterator<Item = u32>);
 }
 
+#[derive(Component, Copy, Clone)]
+pub struct HasVertex<T: Vertex>(pub PhantomData<fn() -> T>);
+impl<T: Vertex> Default for HasVertex<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Vertex> HasVertex<T> {
+    #[inline]
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
 pub struct DrawerPlugin<T: Drawer>(pub PhantomData<fn() -> T>);
 impl<T: Drawer> Default for DrawerPlugin<T> {
     #[inline]
@@ -77,32 +93,11 @@ impl<T: Drawer> DrawerPlugin<T> {
 
 impl<T: Drawer> Plugin for DrawerPlugin<T> {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            PostUpdate,
-            check_visibility::<With<HasDrawer<T>>>.in_set(VisibilitySystems::CheckVisibility),
-        );
-
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .add_systems(ExtractSchedule, extract_drawers::<T>)
                 .add_systems(Render, queue_drawers::<T>.in_set(HephaeSystems::QueueDrawers));
         }
-    }
-}
-
-#[derive(Component, Copy, Clone)]
-pub struct HasDrawer<T: Drawer>(pub PhantomData<fn() -> T>);
-impl<T: Drawer> Default for HasDrawer<T> {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: Drawer> HasDrawer<T> {
-    #[inline]
-    pub const fn new() -> Self {
-        Self(PhantomData)
     }
 }
 
@@ -127,7 +122,7 @@ pub trait Drawer: Component + Sized {
 pub fn extract_drawers<T: Drawer>(
     mut commands: Commands,
     param: Extract<T::ExtractParam>,
-    query: Extract<Query<(Entity, &ViewVisibility, T::ExtractData), (With<HasDrawer<T>>, T::ExtractFilter)>>,
+    query: Extract<Query<(Entity, &ViewVisibility, T::ExtractData), T::ExtractFilter>>,
     mut last_len: Local<usize>,
 ) {
     let mut values = Vec::with_capacity(*last_len);
@@ -152,15 +147,15 @@ pub fn queue_drawers<T: Drawer>(
 ) {
     iterated.clear();
     for (view_entity, visible_entities) in &views {
-        for &e in visible_entities.iter::<With<HasDrawer<T>>>() {
+        for &e in visible_entities.iter::<With<HasVertex<T::Vertex>>>() {
             let index = e.index() as usize;
             if iterated[index] {
                 continue;
             }
 
-            iterated.grow_and_insert(index);
             let Ok(drawer) = query.get(e) else { continue };
 
+            iterated.grow_and_insert(index);
             queues
                 .entities
                 .entry(view_entity)

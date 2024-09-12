@@ -9,7 +9,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{BufferAddress, RenderPipelineDescriptor, VertexAttribute, VertexFormat},
 };
-use hephae::prelude::*;
+use hephae::{prelude::*, vertex::HasVertex};
 
 #[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
@@ -129,6 +129,6 @@ fn startup(mut commands: Commands) {
     commands.spawn((
         TransformBundle::IDENTITY,
         VisibilityBundle::default(),
-        HasDrawer::<Draw>::new(),
+        HasVertex::<Vert>::new(),
     ));
 }

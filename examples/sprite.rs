@@ -28,6 +28,7 @@ use hephae::{
     atlas::{AtlasEntry, AtlasIndex, TextureAtlas},
     pipeline::{HephaeBatch, HephaePipeline},
     prelude::*,
+    vertex::HasVertex,
 };
 
 #[derive(Resource, Default)]
@@ -37,7 +38,7 @@ struct ImageAssetEvents(Vec<AssetEvent<Image>>);
 struct ImageBindGroups(HashMap<AssetId<Image>, BindGroup>);
 
 fn extract_image_events(mut events: ResMut<ImageAssetEvents>, mut image_events: Extract<EventReader<AssetEvent<Image>>>) {
-    let images = &mut events.0;
+    let images = &mut events.0; // a
     images.extend(image_events.read());
 }
 
@@ -310,7 +311,7 @@ fn startup(mut commands: Commands, server: Res<AssetServer>) {
             server.load::<TextureAtlas>("sprites/sprites.atlas"),
             AtlasEntry("cix".into()),
             AtlasIndex::default(),
-            HasDrawer::<DrawSprite>::new(),
+            HasVertex::<SpriteVertex>::new(),
         ));
     }
 }

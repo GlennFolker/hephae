@@ -9,6 +9,10 @@ repository = "https://github.com/GlennFolker/hephae"
 license = "MIT OR Apache-2.0"
 keywords = ["bevy", "graphics", "render", "vertex", "batch"]
 categories = ["graphics", "rendering"]
+exclude = [
+    "assets",
+    "examples",
+]
 
 [dependencies]
 bevy = { version = "0.14", default-features = false, features = ["bevy_asset", "bevy_core_pipeline", "bevy_render"] }
@@ -23,6 +27,3 @@ thiserror = "1"
 
 [dev-dependencies]
 bevy = { version = "0.14", default-features = false, features = ["bevy_winit", "png", "multi_threaded", "x11", "file_watcher", "trace"] }
-
-[[example]]
-name = "sprite"

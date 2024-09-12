@@ -69,6 +69,8 @@ pub struct HephaePipeline<T: Vertex> {
 }
 
 impl<T: Vertex> HephaePipeline<T> {
+    /// Returns the [additional property](Vertex::PipelineProp) of the vertex definition for use in
+    /// [specialization](Vertex::specialize_pipeline).
     #[inline]
     pub const fn vertex_prop(&self) -> &T::PipelineProp {
         &self.vertex_prop
@@ -101,6 +103,7 @@ impl<T: Vertex> FromWorld for HephaePipeline<T> {
 #[derive(Resource)]
 pub struct PipelineShader<T: Vertex>(pub(crate) Handle<Shader>, PhantomData<fn() -> T>);
 impl<T: Vertex> PipelineShader<T> {
+    /// Returns the [`AssetId<Shader>`] to the [pipeline shader](Vertex::SHADER).
     #[inline]
     pub fn shader(&self) -> AssetId<Shader> {
         self.0.id()

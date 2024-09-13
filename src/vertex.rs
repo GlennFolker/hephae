@@ -2,22 +2,30 @@
 //!
 //! See the documentation of [Vertex] for more information.
 
-use std::{hash::Hash, marker::PhantomData, sync::PoisonError};
+use std::{any::TypeId, hash::Hash, marker::PhantomData, sync::PoisonError};
 
 use bevy::{
     core_pipeline::core_2d::Transparent2d,
     ecs::{
+        component::ComponentId,
+        entity::EntityHashMap,
         query::{QueryFilter, QueryItem, ReadOnlyQueryData},
-        system::{ReadOnlySystemParam, StaticSystemParam, SystemParam, SystemParamItem},
+        storage::SparseSet,
+        system::{lifetimeless::Read, ReadOnlySystemParam, StaticSystemParam, SystemParam, SystemParamItem, SystemState},
+        world::FilteredEntityRef,
     },
     prelude::*,
     render::{
+        primitives::{Aabb, Frustum, Sphere},
         render_phase::RenderCommand,
         render_resource::{RenderPipelineDescriptor, VertexAttribute},
-        view::{ExtractedView, VisibleEntities},
+        view::{
+            ExtractedView, NoCpuCulling, NoFrustumCulling, RenderLayers, VisibilityRange, VisibleEntities,
+            VisibleEntityRanges,
+        },
         Extract, Render, RenderApp,
     },
-    utils::EntityHashSet,
+    utils::{Parallel, TypeIdMap},
 };
 use bytemuck::NoUninit;
 use fixedbitset::FixedBitSet;
@@ -92,9 +100,10 @@ pub trait VertexCommand: Send + Sync {
     fn draw(&self, queuer: &mut impl VertexQueuer<Vertex = Self::Vertex>);
 }
 
-/// Similar to [`Extend`], except it works with both vertex and index buffers. Ideally it also
-/// adjusts the index offset to the length of the current vertex buffer so primitives would have the
-/// correct shapes.
+/// Similar to [`Extend`], except it works with both vertex and index buffers.
+///
+/// Ideally it also adjusts the index offset to the length of the current vertex buffer so
+/// primitives would have the correct shapes.
 pub trait VertexQueuer {
     /// The type of vertex this queuer works with.
     type Vertex: Vertex;
@@ -106,23 +115,164 @@ pub trait VertexQueuer {
     fn indices(&mut self, indices: impl IntoIterator<Item = u32>);
 }
 
-/// Marker component for entities that may extract out [`Drawer`]s to the render world. This *must*
-/// be added to those entities so they'll be calculated in
-/// [`check_visibility`](bevy::render::view::check_visibility).
-#[derive(Component, Copy, Clone)]
-pub struct HasVertex<T: Vertex>(pub PhantomData<fn() -> T>);
-impl<T: Vertex> Default for HasVertex<T> {
+/// Stores the runtime-only type information of [`Drawer`] that is associated with a [`Vertex`] for
+/// use in [`check_visibilities`].
+#[derive(Resource)]
+pub struct VertexDrawers<T: Vertex>(SparseSet<ComponentId, TypeId>, PhantomData<fn() -> T>);
+impl<T: Vertex> Default for VertexDrawers<T> {
     #[inline]
     fn default() -> Self {
-        Self::new()
+        Self(SparseSet::new(), PhantomData)
     }
 }
 
-impl<T: Vertex> HasVertex<T> {
-    /// Shortcut for `HasVertex(PhantomData)`.
+impl<T: Vertex> VertexDrawers<T> {
+    /// Registers a [`Drawer`] to be checked in [`check_visibilities`].
     #[inline]
-    pub const fn new() -> Self {
-        Self(PhantomData)
+    pub fn add<D: Drawer<Vertex = T>>(&mut self, world: &mut World) {
+        self.0
+            .insert(world.init_component::<HasDrawer<D>>(), TypeId::of::<With<HasDrawer<D>>>());
+    }
+}
+
+/// Calculates [`ViewVisibility`] of [drawable](Drawer) entities.
+/// 
+/// Similar to [`check_visibility`](bevy::render::view::check_visibility) that is generic over
+/// [`HasDrawer`], except the filters are configured dynamically by [`DrawerPlugin`]. This makes it
+/// so that all drawers that share the same [`Vertex`] type also share the same visibility system.
+pub fn check_visibilities<T: Vertex>(
+    world: &mut World,
+    mut views: Local<
+        SystemState<(
+            Query<(
+                Entity,
+                Read<Frustum>,
+                Option<Read<RenderLayers>>,
+                Read<Camera>,
+                Has<NoCpuCulling>,
+            )>,
+            Query<(
+                Entity,
+                &InheritedVisibility,
+                &mut ViewVisibility,
+                Option<&RenderLayers>,
+                Option<&Aabb>,
+                &GlobalTransform,
+                Has<NoFrustumCulling>,
+                Has<VisibilityRange>,
+            )>,
+            Option<Res<VisibleEntityRanges>>,
+        )>,
+    >,
+    mut visible_entities: Local<SystemState<Query<(Entity, &mut VisibleEntities)>>>,
+    mut visibility: Local<QueryState<FilteredEntityRef>>,
+    mut thread_queues: Local<Parallel<Vec<Entity>>>,
+    mut view_queues: Local<EntityHashMap<Vec<Entity>>>,
+    mut view_maps: Local<EntityHashMap<TypeIdMap<Vec<Entity>>>>,
+) {
+    let drawers = world.resource_ref::<VertexDrawers<T>>();
+    if drawers.is_changed() {
+        let indices = drawers.0.indices().collect::<Box<_>>();
+        let mut builder = QueryBuilder::<FilteredEntityRef>::new(world);
+
+        builder.or(|query| {
+            for &id in &indices {
+                query.with_id(id);
+            }
+        });
+
+        *visibility = builder.build();
+    }
+
+    let (view_query, mut visible_aabb_query, visible_entity_ranges) = views.get_mut(world);
+
+    let visible_entity_ranges = visible_entity_ranges.as_deref();
+    for (view, &frustum, maybe_view_mask, camera, no_cpu_culling) in &view_query {
+        if !camera.is_active {
+            continue
+        }
+
+        let view_mask = maybe_view_mask.unwrap_or_default();
+        visible_aabb_query.par_iter_mut().for_each_init(
+            || thread_queues.borrow_local_mut(),
+            |queue,
+             (
+                entity,
+                inherited_visibility,
+                mut view_visibility,
+                maybe_entity_mask,
+                maybe_model_aabb,
+                transform,
+                no_frustum_culling,
+                has_visibility_range,
+            )| {
+                if !inherited_visibility.get() {
+                    return
+                }
+
+                let entity_mask = maybe_entity_mask.unwrap_or_default();
+                if !view_mask.intersects(entity_mask) {
+                    return;
+                }
+
+                // If outside of the visibility range, cull.
+                if has_visibility_range &&
+                    visible_entity_ranges.is_some_and(|visible_entity_ranges| {
+                        !visible_entity_ranges.entity_is_in_range_of_view(entity, view)
+                    })
+                {
+                    return;
+                }
+
+                // If we have an AABB, do frustum culling.
+                if !no_frustum_culling && !no_cpu_culling {
+                    if let Some(model_aabb) = maybe_model_aabb {
+                        let world_from_local = transform.affine();
+                        let model_sphere = Sphere {
+                            center: world_from_local.transform_point3a(model_aabb.center),
+                            radius: transform.radius_vec3a(model_aabb.half_extents),
+                        };
+
+                        // Do quick sphere-based frustum culling.
+                        if !frustum.intersects_sphere(&model_sphere, false) {
+                            return;
+                        }
+
+                        // Do AABB-based frustum culling.
+                        if !frustum.intersects_obb(model_aabb, &world_from_local, true, false) {
+                            return;
+                        }
+                    }
+                }
+
+                view_visibility.set();
+                queue.push(entity);
+            },
+        );
+
+        thread_queues.drain_into(view_queues.entry(view).or_default());
+    }
+
+    let drawers = world.resource::<VertexDrawers<T>>();
+    for (&view, queues) in &mut view_queues {
+        let map = view_maps.entry(view).or_default();
+        for e in queues.drain(..) {
+            let Ok(visible) = visibility.get(world, e) else { continue };
+            for (&id, &key) in drawers.0.iter() {
+                if visible.contains_id(id) {
+                    map.entry(key).or_default().push(e);
+                }
+            }
+        }
+    }
+
+    let mut visible_entities = visible_entities.get_mut(world);
+    for (view, mut visible_entities) in &mut visible_entities {
+        let Some(map) = view_maps.get_mut(&view) else { continue };
+        for (&id, entities) in map {
+            let dst = visible_entities.entities.entry(id).or_default();
+            dst.append(entities);
+        }
     }
 }
 
@@ -146,6 +296,9 @@ impl<T: Drawer> DrawerPlugin<T> {
 
 impl<T: Drawer> Plugin for DrawerPlugin<T> {
     fn build(&self, app: &mut App) {
+        app.world_mut()
+            .resource_scope::<VertexDrawers<T::Vertex>, ()>(|world, mut drawers| drawers.add::<T>(world));
+
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
                 .add_systems(ExtractSchedule, extract_drawers::<T>)
@@ -182,6 +335,25 @@ pub trait Drawer: Component + Sized {
     );
 }
 
+/// Marker component for entities that may extract out [`Drawer`]s to the render world. This *must*
+/// be added to those entities so they'll be calculated in [`check_visibilities`].
+#[derive(Component, Copy, Clone)]
+pub struct HasDrawer<T: Drawer>(pub PhantomData<fn() -> T>);
+impl<T: Drawer> Default for HasDrawer<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Drawer> HasDrawer<T> {
+    /// Shortcut for `HasDrawer(PhantomData)`.
+    #[inline]
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
 /// Extracts an instance of `T` from matching entities.
 pub fn extract_drawers<T: Drawer>(
     mut commands: Commands,
@@ -212,7 +384,7 @@ pub fn queue_drawers<T: Drawer>(
 ) {
     iterated.clear();
     for (view_entity, visible_entities) in &views {
-        for &e in visible_entities.iter::<With<HasVertex<T::Vertex>>>() {
+        for &e in visible_entities.iter::<With<HasDrawer<T>>>() {
             let index = e.index() as usize;
             if iterated[index] {
                 continue;
@@ -221,13 +393,9 @@ pub fn queue_drawers<T: Drawer>(
             let Ok(drawer) = query.get(e) else { continue };
 
             iterated.grow_and_insert(index);
-            queues
-                .entities
-                .entry(view_entity)
-                .or_insert(EntityHashSet::default())
-                .insert(e);
+            queues.entities.entry(view_entity).or_default().insert(e);
 
-            drawer.enqueue(&param, &mut *queues.commands.entry(e).or_insert(Vec::new()));
+            drawer.enqueue(&param, &mut *queues.commands.entry(e).or_default());
         }
     }
 

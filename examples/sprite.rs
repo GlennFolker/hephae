@@ -28,7 +28,7 @@ use hephae::{
     atlas::{AtlasEntry, AtlasIndex, AtlasPlugin, TextureAtlas},
     pipeline::{HephaeBatch, HephaePipeline},
     prelude::*,
-    vertex::HasVertex,
+    vertex::HasDrawer,
 };
 
 #[derive(Resource, Default)]
@@ -314,7 +314,7 @@ fn startup(mut commands: Commands, server: Res<AssetServer>) {
             server.load::<TextureAtlas>("sprites/sprites.atlas"),
             AtlasEntry("cix".into()),
             AtlasIndex::default(),
-            HasVertex::<SpriteVertex>::new(),
+            HasDrawer::<DrawSprite>::new(),
         ));
     }
 }

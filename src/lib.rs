@@ -1,5 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(doc, warn(missing_docs))]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
 
 #[cfg(feature = "atlas")]
 pub mod atlas;
@@ -15,7 +17,7 @@ use bevy::{
     render::{
         render_phase::{AddRenderCommand, RenderCommand},
         render_resource::SpecializedRenderPipelines,
-        view::{check_visibility, VisibilitySystems},
+        view::VisibilitySystems,
         Render, RenderApp, RenderSet,
     },
 };
@@ -23,7 +25,7 @@ use pipeline::{
     clear_batches, extract_shader, load_shader, prepare_batch, prepare_view_bind_groups, queue_vertices, DrawRequests,
     HephaeBatches, HephaePipeline, VertexQueues,
 };
-use vertex::{HasVertex, Vertex};
+use vertex::{check_visibilities, Vertex, VertexDrawers};
 
 /// Prelude module containing commonly imported items.
 pub mod prelude {
@@ -54,7 +56,9 @@ pub enum HephaeSystems {
     PrepareBindGroups,
 }
 
-/// The entry point of Hephae, generic over `T`. Adds the core functionality of Hephae through the
+/// The entry point of Hephae, generic over `T`.
+/// 
+/// Adds the core functionality of Hephae through the
 /// [`Vertex`] `impl` of `T`. Note that with this alone you can't start drawing yet; refer to
 /// [`DrawerPlugin`](vertex::DrawerPlugin) for more.
 pub struct HephaePlugin<T: Vertex>(PhantomData<fn() -> T>);
@@ -90,10 +94,9 @@ where
             );
         }
 
-        app.add_systems(Startup, load_shader::<T>).add_systems(
-            PostUpdate,
-            check_visibility::<With<HasVertex<T>>>.in_set(VisibilitySystems::CheckVisibility),
-        );
+        app.init_resource::<VertexDrawers<T>>()
+            .add_systems(Startup, load_shader::<T>)
+            .add_systems(PostUpdate, check_visibilities::<T>.in_set(VisibilitySystems::CheckVisibility));
 
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             if run {

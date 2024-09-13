@@ -23,7 +23,7 @@
 //!
 //! See the `examples/sprite.rs` for a full example.
 
-use std::{borrow::Cow, io::Error as IoError, usize};
+use std::{borrow::Cow, io::Error as IoError};
 
 use bevy::{
     asset::{
@@ -49,6 +49,7 @@ use serde::{
 };
 use thiserror::Error;
 
+/// Provides texture atlas functionality. Registers [`TextureAtlas`] and [`TextureAtlasLoader`].
 pub struct AtlasPlugin;
 impl Plugin for AtlasPlugin {
     fn build(&self, app: &mut App) {
@@ -168,7 +169,9 @@ pub fn update_atlas_index(
     }
 }
 
-/// Asset file representation of [`TextureAtlas`]. This struct `impl`s [`Serialize`] and
+/// Asset file representation of [`TextureAtlas`].
+///
+/// This struct `impl`s [`Serialize`] and
 /// [`Deserialize`], which means it may be (de)serialized into any implementation, albeit
 /// [`TextureAtlasLoader`] uses [RON](ron) format specifically.
 ///
@@ -378,7 +381,9 @@ pub enum TextureAtlasError {
     Io(#[from] IoError),
 }
 
-/// Dedicated [`AssetLoader`] to load [`TextureAtlas`]. Parses file into [`TextureAtlasFile`]
+/// Dedicated [`AssetLoader`] to load [`TextureAtlas`].
+/// 
+/// Parses file into [`TextureAtlasFile`]
 /// representation, and accepts [`TextureAtlasSettings`] as additional optional configuration. May
 /// throw [`TextureAtlasError`] for erroneous assets.
 ///

@@ -1,6 +1,6 @@
 [package]
 name = "hephae"
-version = "0.2.0"
+version = "0.1.0"
 authors = ["GlFolker <glenn.folk08@gmail.com>"]
 edition = "2021"
 rust-version = "1.81"
@@ -29,7 +29,7 @@ thiserror = { version = "1", optional = true }
 bevy = { version = "0.14", default-features = false, features = ["bevy_winit", "png", "multi_threaded", "x11", "file_watcher", "trace"] }
 
 [features]
-default = []
+default = ["atlas"]
 atlas = ["dep:guillotiere", "dep:radsort", "dep:ron", "dep:serde", "dep:thiserror"]
 
 [[example]]
@@ -38,3 +38,6 @@ name = "quad"
 [[example]]
 name = "sprite"
 required-features = ["atlas"]
+
+[package.metadata.docs.rs]
+all-features = true

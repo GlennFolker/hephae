@@ -125,9 +125,10 @@ pub fn extract_shader<T: Vertex>(mut commands: Commands, shader: Extract<Option<
     }
 }
 
-/// Common pipeline specialization key that factors components from [views](ExtractedView) such as
-/// [HDR](ExtractedView::hdr), [multisampling](Msaa), and [tonemapping](Tonemapping),
-/// [deband-dithering](DebandDither).
+/// Common pipeline specialization key.
+///
+/// Factors components from [views](ExtractedView) such as [HDR](ExtractedView::hdr),
+/// [multisampling](Msaa), and [tonemapping](Tonemapping), [deband-dithering](DebandDither).
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
 pub struct ViewKey {
     hdr: bool,
@@ -268,7 +269,7 @@ pub fn queue_vertices<T: Vertex>(
     pipeline: Res<HephaePipeline<T>>,
     shader: Res<PipelineShader<T>>,
     mut pipelines: ResMut<SpecializedRenderPipelines<HephaePipeline<T>>>,
-    mut pipeline_cache: ResMut<PipelineCache>,
+    pipeline_cache: Res<PipelineCache>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent2d>>,
     views: Query<(Entity, &ExtractedView, Option<&Tonemapping>, Option<&DebandDither>)>,
 ) where
@@ -301,7 +302,7 @@ pub fn queue_vertices<T: Vertex>(
                 transparent_phase.add(Transparent2d {
                     sort_key: FloatOrd(layer),
                     entity: e,
-                    pipeline: pipelines.specialize(&mut pipeline_cache, &pipeline, (view_key, key.clone())),
+                    pipeline: pipelines.specialize(&pipeline_cache, &pipeline, (view_key, key.clone())),
                     draw_function,
                     batch_range: 0..0,
                     extra_index: PhaseItemExtraIndex(i as u32),

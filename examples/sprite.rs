@@ -25,7 +25,7 @@ use bevy::{
     utils::HashMap,
 };
 use hephae::{
-    atlas::{AtlasEntry, AtlasIndex, TextureAtlas},
+    atlas::{AtlasEntry, AtlasIndex, AtlasPlugin, TextureAtlas},
     pipeline::{HephaeBatch, HephaePipeline},
     prelude::*,
     vertex::HasVertex,
@@ -282,9 +282,12 @@ impl VertexCommand for Sprite {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
-        .add_plugins(HephaePlugin::<SpriteVertex>::new())
-        .add_plugins(DrawerPlugin::<DrawSprite>::new())
+        .add_plugins((
+            DefaultPlugins.set(ImagePlugin::default_nearest()),
+            HephaePlugin::<SpriteVertex>::new(),
+            AtlasPlugin,
+            DrawerPlugin::<DrawSprite>::new(),
+        ))
         .add_systems(Startup, startup)
         .run();
 }

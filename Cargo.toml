@@ -1,6 +1,6 @@
 [package]
 name = "hephae"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["GlFolker <glenn.folk08@gmail.com>"]
 edition = "2021"
 rust-version = "1.81"
@@ -19,11 +19,22 @@ bevy = { version = "0.14", default-features = false, features = ["bevy_asset", "
 bytemuck = { version = "1", features = ["align_offset", "derive", "min_const_generics", "wasm_simd", "aarch64_simd"] }
 dashmap = { version = "6", features = ["inline"] }
 fixedbitset = "0.5"
-guillotiere = "0.6"
-radsort = "0.1"
-ron = "0.8"
-serde = { version = "1", features = ["derive"] }
-thiserror = "1"
+guillotiere = { version = "0.6", optional = true }
+radsort = { version = "0.1", optional = true }
+ron = { version = "0.8", optional = true }
+serde = { version = "1", optional = true, features = ["derive"] }
+thiserror = { version = "1", optional = true }
 
 [dev-dependencies]
 bevy = { version = "0.14", default-features = false, features = ["bevy_winit", "png", "multi_threaded", "x11", "file_watcher", "trace"] }
+
+[features]
+default = []
+atlas = ["dep:guillotiere", "dep:radsort", "dep:ron", "dep:serde", "dep:thiserror"]
+
+[[example]]
+name = "quad"
+
+[[example]]
+name = "sprite"
+required-features = ["atlas"]

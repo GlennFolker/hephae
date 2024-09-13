@@ -49,6 +49,16 @@ use serde::{
 };
 use thiserror::Error;
 
+pub struct AtlasPlugin;
+impl Plugin for AtlasPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_asset::<TextureAtlas>()
+            .register_asset_reflect::<TextureAtlas>()
+            .register_asset_loader(TextureAtlasLoader)
+            .add_systems(PostUpdate, update_atlas_index);
+    }
+}
+
 /// A list of textures packed into one large texture. See the [module-level](crate::atlas)
 /// documentation for more specific information on how to integrate this into your rendering
 /// framework.

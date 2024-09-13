@@ -1,13 +1,13 @@
 #![doc = include_str!("../README.md")]
 #![cfg_attr(doc, warn(missing_docs))]
 
+#[cfg(feature = "atlas")]
 pub mod atlas;
 pub mod pipeline;
 pub mod vertex;
 
 use std::marker::PhantomData;
 
-use atlas::{update_atlas_index, TextureAtlas, TextureAtlasLoader};
 use bevy::{
     core_pipeline::core_2d::Transparent2d,
     ecs::system::ReadOnlySystemParam,
@@ -88,11 +88,6 @@ where
                 &HEPHAE_VIEW_BINDINGS_HANDLE,
                 Shader::from_wgsl(include_str!("view_bindings.wgsl"), "hephae/view_bindings.wgsl"),
             );
-
-            app.init_asset::<TextureAtlas>()
-                .register_asset_reflect::<TextureAtlas>()
-                .register_asset_loader(TextureAtlasLoader)
-                .add_systems(PostUpdate, update_atlas_index);
         }
 
         app.add_systems(Startup, load_shader::<T>).add_systems(

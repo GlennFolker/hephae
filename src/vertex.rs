@@ -136,7 +136,7 @@ impl<T: Vertex> VertexDrawers<T> {
 }
 
 /// Calculates [`ViewVisibility`] of [drawable](Drawer) entities.
-/// 
+///
 /// Similar to [`check_visibility`](bevy::render::view::check_visibility) that is generic over
 /// [`HasDrawer`], except the filters are configured dynamically by [`DrawerPlugin`]. This makes it
 /// so that all drawers that share the same [`Vertex`] type also share the same visibility system.
@@ -271,6 +271,7 @@ pub fn check_visibilities<T: Vertex>(
         let Some(map) = view_maps.get_mut(&view) else { continue };
         for (&id, entities) in map {
             let dst = visible_entities.entities.entry(id).or_default();
+            dst.clear();
             dst.append(entities);
         }
     }
